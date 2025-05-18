@@ -1,19 +1,26 @@
-from django.shortcuts import render
+from django.http import JsonResponse
 from .models import Article
 
-
-def latest_article_detail(request):
+def latest_article_api(request):
     """
-    View that retrieves and displays the most recently published article.
+    API view that returns the most recently published article in JSON format.
 
-    - Fetches the latest article based on the published date.
-    - Passes it to the 'article_detail.html' template for rendering.
-
-    Context:
-    - article: The most recent Article instance.
+    Returns:
+    - JSON object with article fields, or a message if no article exists.
     """
-    latest_article = Article.objects.order_by('-published_date').first()
-    context = {
-        'article': latest_article
-    }
-    return render(request, 'article_detail.html', context)
+    article = Article.objects.order_by('-published_date').first()
+
+    if not article:
+        return JsonResponse({'message': 'No articles available'}, status=404)
+
+    return JsonResponse({
+        'title_header': article.title_header,
+        'paragraph1': article.paragraph1,
+        'header2': article.header2,
+        'paragraph2': article.paragraph2,
+        'header3': article.header3,
+        'paragraph3': article.paragraph3,
+        'themes': article.get_themes_list(),
+        'footer_note': article.footer_note,
+        'published_date': article.published_date.isoformat(),
+    })

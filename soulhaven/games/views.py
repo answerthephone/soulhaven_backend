@@ -4,6 +4,8 @@ from .models import CompletedGame, GameType
 from stars.models import StarAction, StarHistory
 from achievements.utils import award_achievement
 from stars.utils import award_stars
+from django.views.decorators.csrf import csrf_exempt
+import json
 
 
 FIRST_GAME_TYPE_ACHIEVEMENTS = {
@@ -34,57 +36,59 @@ FIRST_GAME_TYPE_ACHIEVEMENTS = {
     },
 }
 
+@csrf_exempt
 @login_required
 def complete_game(request):
     """
     View that handles game completion by the user.
 
     Trigger:
-    - POST request containing 'game_type'.
+    - POST request containing 'game_type' as JSON.
 
     Logic:
-    - Creates a CompletedGame record for the user and specified game type.
-    - Awards 50 stars for the completion.
-    - Checks if this is the user's first time completing this game type:
-        - If yes, awards an achievement defined in FIRST_GAME_TYPE_ACHIEVEMENTS.
+    - Records game play.
+    - Awards 50 stars.
+    - Checks if it's the first time user plays this game type, and awards achievement.
 
     Response:
-    - On success:
-        - status: "ok"
-        - message: Confirmation message
-        - achievements: List of newly unlocked achievements (if any)
-    - On failure:
-        - status: "error"
-        - HTTP 400 with error message
+    - JSON response with status, message, and any unlocked achievements.
     """
     if request.method == 'POST':
-        game_type = request.POST.get('game_type')
+        try:
+            data = json.loads(request.body)
+            game_type = data.get('game_type')
 
-        CompletedGame.objects.create(user=request.user, game_type=game_type)
+            if game_type not in GameType.values:
+                return JsonResponse({'status': 'error', 'message': 'Invalid game type'}, status=400)
 
-        award_stars(request.user, f'Game Completion: {game_type.title()}', amount=50)
+            CompletedGame.objects.create(user=request.user, game_type=game_type)
 
-        unlocked = []
+            award_stars(request.user, f'Game Completion: {game_type.title()}', amount=50)
 
-        if CompletedGame.objects.filter(user=request.user, game_type=game_type).count() == 1:
-            achievement_data = FIRST_GAME_TYPE_ACHIEVEMENTS.get(game_type)
-            if achievement_data:
-                if award_achievement(
-                    request.user,
-                    name=achievement_data['name'],
-                    description=achievement_data['description'],
-                    image=achievement_data['image']
-                ):
-                    unlocked.append({
-                        'name': achievement_data['name'],
-                        'description': achievement_data['description'],
-                        'image': achievement_data['image']
-                    })
+            unlocked = []
 
-        return JsonResponse({
-            'status': 'ok',
-            'message': 'Game completed. Stars awarded.',
-            'achievements': unlocked
-        })
+            if CompletedGame.objects.filter(user=request.user, game_type=game_type).count() == 1:
+                achievement_data = FIRST_GAME_TYPE_ACHIEVEMENTS.get(game_type)
+                if achievement_data:
+                    if award_achievement(
+                        request.user,
+                        name=achievement_data['name'],
+                        description=achievement_data['description'],
+                        image=achievement_data['image']
+                    ):
+                        unlocked.append({
+                            'name': achievement_data['name'],
+                            'description': achievement_data['description'],
+                            'image': achievement_data['image']
+                        })
 
-    return JsonResponse({'status': 'error', 'message': 'Invalid request'}, status=400)
+            return JsonResponse({
+                'status': 'ok',
+                'message': 'Game completed. Stars awarded.',
+                'achievements': unlocked
+            })
+
+        except json.JSONDecodeError:
+            return JsonResponse({'status': 'error', 'message': 'Invalid JSON'}, status=400)
+
+    return JsonResponse({'status': 'error', 'message': 'Invalid request method'}, status=405)

@@ -25,4 +25,4 @@ def award_achievement(user, name, description=None, image=None):
     if not UserAchievement.objects.filter(user=user, achievement=achievement).exists():
         UserAchievement.objects.create(user=user, achievement=achievement)
         return True 
-    return False  
+    return False

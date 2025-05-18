@@ -1,6 +1,6 @@
 from django.urls import path
-from . import views
+from .views import latest_article_api
 
 urlpatterns = [
-    path('latest-article/', views.latest_article_detail, name='latest_article'),
+    path('latest/', latest_article_api, name='latest_article_api'),
 ]

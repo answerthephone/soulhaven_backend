@@ -1,6 +1,6 @@
 from django.urls import path
-from . import views
+from .views import expert_detail_api
 
 urlpatterns = [
-    path('<int:expert_id>/', views.expert_detail, name='expert_detail'),
+    path('<int:expert_id>/', expert_detail_api, name='expert_detail_api'),
 ]

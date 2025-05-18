@@ -8,179 +8,276 @@ from .models import UserProfile
 from accounts.decorators import with_star_history
 from stars.models import StarHistory
 from achievements.models import UserAchievement
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import json
 
 
+@csrf_exempt
 def user_register(request):
     """
-    Handles user registration.
+    API endpoint to register a new user.
 
-    - Checks if the username or email already exists.
-    - Creates a new user if valid.
-    - Redirects to login page upon successful registration.
+    Expected JSON:
+    {
+        "username": "",
+        "email": "",
+        "password": "",
+        "confirm_password": ""
+    }
+
+    Returns:
+    - 201: Successful registration
+    - 400: Validation or logic error
+    - 409: Conflict (duplicate username/email)
     """
-    if request.method == 'POST':
-        username = request.POST['username']
-        email = request.POST['email']
-        password = request.POST['password']
-        confirm_password = request.POST['confirm_password']
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST method is allowed'}, status=405)
 
-        if password == confirm_password:
-            if User.objects.filter(username=username).exists():
-                messages.error(request, "Username already taken")
-            elif User.objects.filter(email=email).exists():
-                messages.error(request, "Email already registered")
-            else:
-                user = User.objects.create_user(username=username, email=email, password=password)
-                user.save()
-                messages.success(request, "Registration successful! You can now log in.")
-                return redirect('user_login')
-        else:
-            messages.error(request, "Passwords do not match")
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+        email = data.get('email')
+        password = data.get('password')
+        confirm_password = data.get('confirm_password')
 
-    return render(request, 'register.html')
+        if not all([username, email, password, confirm_password]):
+            return JsonResponse({'error': 'All fields are required'}, status=400)
 
+        if password != confirm_password:
+            return JsonResponse({'error': 'Passwords do not match'}, status=400)
 
+        if User.objects.filter(username=username).exists():
+            return JsonResponse({'error': 'Username already taken'}, status=409)
+
+        if User.objects.filter(email=email).exists():
+            return JsonResponse({'error': 'Email already registered'}, status=409)
+
+        User.objects.create_user(username=username, email=email, password=password)
+
+        return JsonResponse({'message': 'Registration successful'}, status=201)
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+@csrf_exempt
 def user_login(request):
     """
-    Handles user authentication (login).
+    API endpoint to authenticate and log in a user.
 
-    - Authenticates user credentials.
-    - Redirects to homepage if login is successful.
-    - Displays error message if credentials are invalid.
+    Expected JSON:
+    {
+        "username": "",
+        "password": ""
+    }
+
+    Returns:
+    - 200: Success with user info
+    - 401: Invalid credentials
+    - 400: Bad request
     """
-    if request.method == 'POST':
-        username = request.POST['username']
-        password = request.POST['password']
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST method is allowed'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+        password = data.get('password')
+
+        if not username or not password:
+            return JsonResponse({'error': 'Username and password are required'}, status=400)
+
         user = authenticate(request, username=username, password=password)
 
         if user is not None:
             login(request, user)
-            messages.success(request, "Login successful!")
-            return redirect('/')
+            return JsonResponse({'message': 'Login successful'}, status=200)
         else:
-            messages.error(request, "Invalid credentials")
+            return JsonResponse({'error': 'Invalid credentials'}, status=401)
 
-    return render(request, 'login.html')
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
 
+@csrf_exempt
 def user_logout(request):
     """
-    Logs the user out and redirects to login page.
+    API endpoint to log the user out.
 
     - Clears the session.
-    - Displays a logout success message.
+    - Returns a success message in JSON.
+
+    Method: POST
     """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST method is allowed'}, status=405)
+
     logout(request)
-    messages.success(request, "You have been logged out.")
-    return redirect('user_login')
+    return JsonResponse({'message': 'Successfully logged out'}, status=200)
 
 
 @login_required
-@with_star_history
 def personal_account_view(request):
     """
-    Displays the personal account page.
+    API endpoint to return user's personal account data.
 
-    - Requires user login.
-    - Shows user profile information.
-    - Provides access to personal account dashboard.
+    - Requires authentication.
+    - Returns profile fields and basic user info.
+
+    Method: GET
     """
     user = request.user
     profile = get_object_or_404(UserProfile, user=user)
 
-    return render(request, 'accounts/personal_account.html', {
-        'user': user,
-        'profile': profile,
+    return JsonResponse({
+        'username': user.username,
+        'email': user.email,
+        'nickname': profile.nickname,
+        'level': profile.level,
+        'stars': profile.stars,
+        'avatar': profile.avatar.url if profile.avatar else None,
+        'log_ins': profile.log_ins,
     })
 
 
 @login_required
-@with_star_history
 def profile_view(request):
     """
-    Displays the user's public profile page.
+    API endpoint to return the authenticated user's profile data.
 
     - Requires user login.
-    - Fetches and shows profile details.
+    - Returns profile fields and user metadata.
+
+    Method: GET
     """
     user = request.user
     profile = get_object_or_404(UserProfile, user=user)
 
-    return render(request, 'accounts/profile.html', {
-        'user': user,
-        'profile': profile,
+    return JsonResponse({
+        'username': user.username,
+        'email': user.email,
+        'nickname': profile.nickname,
+        'age': profile.age,
+        'level': profile.level,
+        'stars': profile.stars,
+        'avatar': profile.avatar.url if profile.avatar else None,
+        'log_ins': profile.log_ins,
     })
 
-
 @login_required
-@with_star_history
 def calendar_view(request):
     """
-    Displays the user's calendar page.
+    API endpoint to return user's login activity for calendar display.
 
-    - Requires user login.
-    - Shows data like login streaks or activity history (if available).
+    - Requires authentication.
+    - Returns list of login dates (as ISO strings).
+
+    Method: GET
     """
-    user = request.user
-    profile = get_object_or_404(UserProfile, user=user)
+    profile = get_object_or_404(UserProfile, user=request.user)
 
-    return render(request, 'accounts/calendar.html', {
-        'user': user,
-        'profile': profile,
+    return JsonResponse({
+        'log_ins': profile.log_ins or []
     })
 
 
 @login_required
-@with_star_history
 def star_history_view(request):
     """
-    Displays the user's star history.
+    API endpoint to return user's star earning history.
 
-    - Lists all star actions in reverse chronological order.
-    - Requires user login.
+    - Requires login.
+    - Returns a list of actions with timestamps and amount of stars.
+
+    Method: GET
     """
     history = StarHistory.objects.filter(user=request.user).select_related('action').order_by('-earned_at')
-    return render(request, 'accounts/star_history.html', {'history': history})
+
+    return JsonResponse({
+        'history': [
+            {
+                'action': entry.action.name,
+                'amount': entry.action.amount,
+                'earned_at': entry.earned_at.isoformat()
+            }
+            for entry in history
+        ]
+    })
 
 
 @login_required
-@with_star_history
 def user_achievements(request):
     """
-    Displays the user's achievements.
+    API endpoint to return user's unlocked achievements.
 
-    - Requires user login.
-    - Lists all achievements unlocked by the user.
+    - Requires login.
+    - Returns name, description, image, and awarded time for each achievement.
+
+    Method: GET
     """
     achievements = UserAchievement.objects.filter(user=request.user).select_related('achievement')
-    return render(request, 'accounts/user_achievements.html', {'achievements': achievements})
+
+    return JsonResponse({
+        'achievements': [
+            {
+                'name': ua.achievement.name,
+                'description': ua.achievement.description,
+                'image': ua.achievement.image.url if ua.achievement.image else None,
+                'awarded_at': ua.awarded_at.isoformat()
+            }
+            for ua in achievements
+        ]
+    })
 
 
+@csrf_exempt
 @login_required
 def edit_profile(request):
     """
-    Allows the user to edit their profile information.
+    API endpoint to update user profile info.
 
-    - Requires user login.
-    - Displays and processes the user and profile update forms.
-    - Redirects to profile page after successful update.
+    Expected JSON (any subset of):
+    {
+        "email": "newemail@example.com",
+        "nickname": "NewNickname",
+        "age": 25
+    }
+
+    Returns:
+    - 200 on success
+    - 400 if invalid input
     """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST method is allowed'}, status=405)
+
     user = request.user
     profile = UserProfile.objects.get(user=user)
 
-    if request.method == 'POST':
-        user_form = UserEditForm(request.POST, instance=user)
-        profile_form = ProfileEditForm(request.POST, request.FILES, instance=profile)
+    try:
+        if request.content_type == "application/json":
+            data = json.loads(request.body)
+        else:
+            data = request.POST
 
-        if user_form.is_valid() and profile_form.is_valid():
-            user_form.save()
-            profile_form.save()
-            return redirect('profile')
-    else:
-        user_form = UserEditForm(instance=user)
-        profile_form = ProfileEditForm(instance=profile)
+        email = data.get('email')
+        if email:
+            user.email = email
+            user.save()
 
-    return render(request, 'accounts/edit_profile.html', {
-        'user_form': user_form,
-        'profile_form': profile_form,
-    })
+        nickname = data.get('nickname')
+        age = data.get('age')
+
+        if nickname:
+            profile.nickname = nickname
+        if age is not None:
+            try:
+                profile.age = int(age)
+            except ValueError:
+                return JsonResponse({'error': 'Age must be a number'}, status=400)
+
+        profile.save()
+
+        return JsonResponse({'message': 'Profile updated successfully'}, status=200)
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
